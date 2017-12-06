@@ -1,21 +1,25 @@
-module Main exposing (main)
+port module Main exposing (main)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
+import Html.Events.Extra exposing (onEnter)
 import Time exposing (Time, every, second)
 
 
 type alias Model =
     { numberOfParticipants : Int
+    , timePerParticipant : Int
     , totalTime : Int
+    , remainingTotalTime : Int
+    , isPaused : Bool
     , page : Page
     }
 
 
 model : Model
 model =
-    Model 0 0 Setup
+    Model 0 0 0 0 False Setup
 
 
 init : ( Model, Cmd Msg )
@@ -25,7 +29,7 @@ init =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    if model.page == Running then
+    if model.page == Running && model.remainingTotalTime > 0 && not model.isPaused then
         every second Tick
     else
         Sub.none
@@ -44,6 +48,11 @@ type Msg
     | MsgReady
     | Start
     | Tick Time
+    | TogglePause
+    | Ring
+
+
+port ring : () -> Cmd msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -71,92 +80,149 @@ update msg model =
             ( { model | page = Running }, Cmd.none )
 
         Tick _ ->
-            ( { model | totalTime = model.totalTime - 1 }, Cmd.none )
+            ( { model | remainingTotalTime = model.remainingTotalTime - 1 }, Cmd.none )
 
         UpdateTotalTime time ->
             let
                 finalNum =
-                    case String.toInt time of
-                        Ok val ->
-                            val
+                    floor
+                        (case String.toFloat time of
+                            Ok val ->
+                                val * 60
 
-                        Err _ ->
-                            0
+                            Err _ ->
+                                0
+                        )
             in
-                ( { model | totalTime = finalNum }, Cmd.none )
+                ( { model | totalTime = finalNum, remainingTotalTime = finalNum }, Cmd.none )
+
+        TogglePause ->
+            ( { model | isPaused = not model.isPaused }, Cmd.none )
+
+        Ring ->
+            ( model, ring () )
 
 
 viewHeader =
-    div []
+    div [ class "header" ]
         [ h1 [] [ text "Elm Singapore" ]
         , h2 [] [ text "TIMER" ]
         ]
 
 
 viewInputs =
-    div []
-        [ input [ placeholder "# of participants", onInput UpdateParticipants ] []
-        , br [] []
-        , input [ placeholder "Total time", onInput UpdateTotalTime ] []
+    div [ class "content" ]
+        [ div [ class "ready-input" ]
+            [ input
+                [ placeholder "Total Time"
+                , onEnter MsgReady
+                , onInput UpdateTotalTime
+                ]
+                []
+            , span [] [ text "minutes" ]
+            ]
         ]
 
 
 viewReadyButtons =
-    div []
-        [ button [ onClick MsgReset ] [ text "RESET" ]
-        , button [ onClick Start ] [ text "START" ]
+    div [ class "content-input" ]
+        [ div []
+            [ button [ onClick MsgReset ] [ text "RESET" ]
+            , button [ onClick Start ] [ text "START" ]
+            ]
         ]
 
 
 viewSetupButtons =
-    div []
-        [ button [] [ text "RESET" ]
-        , button [ onClick MsgReady ] [ text "READY" ]
+    div [ class "content-input" ]
+        [ div []
+            [ button [] [ text "RESET" ]
+            , button [ onClick MsgReady ] [ text "READY" ]
+            ]
         ]
 
 
 viewCalculatedValues participantSeconds =
-    div []
+    div [ class "content view-calculated" ]
         [ p [] [ (participantSeconds |> toString |> (++)) " seconds " |> text ]
         , p [] [ text "per participant" ]
         ]
 
 
-viewCountdown : ( Int, Int ) -> Html Msg
-viewCountdown ( remainingTime, remainingParticipants ) =
-    div []
-        [ p [] []
-        , p [] [ text ((toString remainingParticipants) ++ " participants left") ]
-        , p [] [ text ((toString remainingTime) ++ " time left") ]
+viewCountdown : Int -> Int -> Html Msg
+viewCountdown remainingTime remainingParticipants =
+    let
+        remainingMins =
+            remainingTime // 60
+
+        remainingSecs =
+            remainingTime % 60
+    in
+        div
+            [ class "content view-countdown" ]
+            [ div []
+                [ span [] [ text (String.padLeft 2 '0' (toString remainingMins)) ]
+                , span [] [ text ":" ]
+                , span [] [ text (String.padLeft 2 '0' (toString remainingSecs)) ]
+                ]
+            , div [] [ text ((toString remainingParticipants) ++ " participants left") ]
+            ]
+
+
+viewCountdownButtons : Int -> Bool -> Html Msg
+viewCountdownButtons remainingTotalTime isPaused =
+    div [ class "content-input" ]
+        [ button [ onClick MsgReset ]
+            [ text "Reset" ]
+        , if remainingTotalTime > 0 then
+            button [ onClick TogglePause ]
+                [ text
+                    (if isPaused then
+                        "Resume"
+                     else
+                        "Pause"
+                    )
+                ]
+          else
+            text ""
         ]
 
 
 view : Model -> Html Msg
 view model =
     let
+        timePerParticipant =
+            (toFloat model.totalTime) / (toFloat model.numberOfParticipants)
+
+        remainingParticipants =
+            floor ((toFloat model.remainingTotalTime) / timePerParticipant)
+
+        remainingTime =
+            floor ((toFloat model.remainingTotalTime) - (toFloat remainingParticipants) * timePerParticipant)
+
         body =
             case model.page of
                 Setup ->
                     [ viewInputs, viewSetupButtons ]
 
                 Ready ->
-                    let
-                        _ =
-                            ( Debug.log "totalTime" (model.totalTime)
-                            , Debug.log "model.numberOfParticipants" (model.numberOfParticipants)
-                            , Debug.log "calculating time per participant" (model.totalTime // model.numberOfParticipants)
-                            )
-                    in
-                        [ viewCalculatedValues
-                            (model.totalTime // model.numberOfParticipants)
-                        , viewReadyButtons
-                        ]
+                    [ viewCalculatedValues (floor timePerParticipant)
+                    , viewReadyButtons
+                    ]
 
                 Running ->
-                    [ viewCountdown ( model.totalTime, model.numberOfParticipants ) ]
+                    [ viewCountdown remainingTime remainingParticipants
+                    , viewCountdownButtons model.remainingTotalTime model.isPaused
+                    ]
     in
-        div []
-            (viewHeader :: body)
+        div [ class "root" ]
+            [ viewHeader
+            , div
+                [ class "main"
+                , classList [ ( "has-alert", remainingTime <= 3 && remainingTime > 0 ) ]
+                ]
+                body
+            ]
 
 
 main =

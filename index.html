@@ -8,12 +8,60 @@
         html,
         head,
         body {
-            padding: 0;
-            margin: 0;
+          padding: 0;
+          margin: 0;
         }
 
         body {
-            font-family: calibri, helvetica, arial, sans-serif;
+          font-family: calibri, helvetica, arial, sans-serif;
+        }
+
+        .root {
+          display: flex;
+          flex-direction: column;
+          min-height: 100vh;
+        }
+
+        .root > .header {
+          flex: 0;
+        }
+
+        .root > .main {
+          flex: 1;
+          min-height: 0;
+        }
+
+        .header {
+          text-align: center;
+        }
+
+        .main {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: space-around;
+        }
+
+        .main.has-alert {
+          background-color: rgba(255, 0, 0, 0.3);
+        }
+
+        .content {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .content .ready-input {
+          min-width: 12rem;
+        }
+
+        .content.view-calculated > p {
+          margin: 0.1rem;
+          text-align: center;
+        }
+
+        .content.view-countdown {
+          text-align: center;
         }
     </style>
     <script src="js/ion.sound.min.js"></script>
@@ -22,7 +70,11 @@
 
 <body>
     <script type="text/javascript">
-        Elm.Main.fullscreen()
+        var app = Elm.Main.fullscreen()
+
+        app.ports.ring.subscribe(function () {
+          ion.sound.play("bell_ring");
+        });
 
         ion.sound({
             sounds: [{
